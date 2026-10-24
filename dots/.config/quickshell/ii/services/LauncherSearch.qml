@@ -15,11 +15,24 @@ Singleton {
     property string query: ""
 
     function ensurePrefix(prefix) {
-        if ([Config.options.search.prefix.action, Config.options.search.prefix.app, Config.options.search.prefix.clipboard, Config.options.search.prefix.emojis, Config.options.search.prefix.math, Config.options.search.prefix.shellCommand, Config.options.search.prefix.webSearch,].some(i => root.query.startsWith(i))) {
+        if ([Config.options.search.prefix.action, Config.options.search.prefix.app, Config.options.search.prefix.clipboard, Config.options.search.prefix.emojis, Config.options.search.prefix.math, Config.options.search.prefix.shellCommand, Config.options.search.prefix.webSearch, Config.options.search.prefix.file ?? "~"].some(i => root.query.startsWith(i))) {
             root.query = prefix + root.query.slice(1);
         } else {
             root.query = prefix + root.query;
         }
+    }
+
+    function cleanFileQuery(raw) {
+        let q = raw.trim();
+        let pfx = Config.options.search.prefix.file ?? "~";
+        if (q.startsWith(pfx)) q = q.slice(pfx.length);
+        else if (q.startsWith("~/")) q = q.slice(2);
+        return q.trim();
+    }
+
+    function cleanWebQuery(raw) {
+        let pfx = Config.options.search.prefix.webSearch ?? "?";
+        return StringUtils.cleanPrefix(raw, pfx).trim();
     }
 
     // https://specifications.freedesktop.org/menu/latest/category-registry.html
@@ -137,15 +150,79 @@ Singleton {
         return StringUtils.stringListContainsSubstring(entry.toLowerCase(), unsafeKeywords);
     }
 
+    property var rawFileResults: []
+    property var rawKagiResults: []
+    property string lastFileQuery: ""
+    property string lastKagiQuery: ""
+    property string lastMathQuery: ""
+
+    onQueryChanged: {
+        let q = root.query.trim();
+        if (q === "") {
+            root.mathResult = "";
+            root.rawFileResults = [];
+            root.rawKagiResults = [];
+            root.lastFileQuery = "";
+            root.lastKagiQuery = "";
+            root.lastMathQuery = "";
+            mathProc.running = false;
+            fileSearchProc.running = false;
+            kagiSearchProc.running = false;
+            nonAppResultsTimer.stop();
+        } else {
+            nonAppResultsTimer.restart();
+        }
+    }
+
     Timer {
         id: nonAppResultsTimer
-        interval: Config.options.search.nonAppResultDelay
+        interval: 180
+        repeat: false
         onTriggered: {
-            let expr = root.query;
+            let q = root.query.trim();
+            if (q === "") return;
+
+            // Math
+            let expr = q;
             if (expr.startsWith(Config.options.search.prefix.math)) {
-                expr = expr.slice(Config.options.search.prefix.math.length);
+                expr = expr.slice(Config.options.search.prefix.math.length).trim();
             }
-            mathProc.calculateExpression(expr);
+            if (expr !== "" && (q.startsWith(Config.options.search.prefix.math) || /^\d/.test(q))) {
+                if (expr !== root.lastMathQuery) {
+                    root.lastMathQuery = expr;
+                    mathProc.calculateExpression(expr);
+                }
+            } else {
+                root.mathResult = "";
+                root.lastMathQuery = "";
+            }
+
+            // File search
+            let cleanFile = root.cleanFileQuery(q);
+            let filePrefix = Config.options.search.prefix.file ?? "~";
+            let isFileSearch = q.startsWith(filePrefix) || q.startsWith("~/") || q.startsWith("/");
+            if (cleanFile.length >= 2) {
+                if (cleanFile !== root.lastFileQuery) {
+                    root.lastFileQuery = cleanFile;
+                    fileSearchProc.search(cleanFile, isFileSearch ? 15 : 5);
+                }
+            } else {
+                root.rawFileResults = [];
+                root.lastFileQuery = "";
+            }
+
+            // Kagi web search
+            let isWebSearch = q.startsWith(Config.options.search.prefix.webSearch);
+            let cleanWeb = root.cleanWebQuery(q);
+            if (isWebSearch && cleanWeb.length >= 1) {
+                if (cleanWeb !== root.lastKagiQuery) {
+                    root.lastKagiQuery = cleanWeb;
+                    kagiSearchProc.search(cleanWeb);
+                }
+            } else {
+                root.rawKagiResults = [];
+                root.lastKagiQuery = "";
+            }
         }
     }
 
@@ -161,6 +238,59 @@ Singleton {
             onRead: data => {
                 root.mathResult = data;
             }
+        }
+    }
+
+    Process {
+        id: fileSearchProc
+        property string queryTarget: ""
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (fileSearchProc.queryTarget !== root.cleanFileQuery(root.query)) return;
+                try {
+                    root.rawFileResults = JSON.parse(text);
+                } catch(e) {
+                    root.rawFileResults = [];
+                }
+            }
+        }
+        function search(searchQuery, maxCount) {
+            fileSearchProc.running = false;
+            fileSearchProc.queryTarget = searchQuery;
+            fileSearchProc.command = [
+                "python3",
+                Quickshell.shellPath("scripts/search/filesearch.py"),
+                searchQuery,
+                String(maxCount || 15)
+            ];
+            fileSearchProc.running = true;
+        }
+    }
+
+    Process {
+        id: kagiSearchProc
+        property string queryTarget: ""
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (kagiSearchProc.queryTarget !== root.cleanWebQuery(root.query)) return;
+                try {
+                    root.rawKagiResults = JSON.parse(text);
+                } catch(e) {
+                    root.rawKagiResults = [];
+                }
+            }
+        }
+        function search(searchQuery) {
+            kagiSearchProc.running = false;
+            kagiSearchProc.queryTarget = searchQuery;
+            let token = Config.options.search.kagiToken || "";
+            kagiSearchProc.command = [
+                "python3",
+                Quickshell.shellPath("scripts/search/kagisearch.py"),
+                searchQuery,
+                token
+            ];
+            kagiSearchProc.running = true;
         }
     }
 
@@ -227,7 +357,6 @@ Singleton {
         }
 
         ////////////////// Init ///////////////////
-        nonAppResultsTimer.restart();
         const mathResultObject = resultComp.createObject(null, {
             name: root.mathResult,
             verb: Translation.tr("Copy"),
@@ -291,21 +420,112 @@ Singleton {
                 Quickshell.execDetached(["bash", "-c", root.query.startsWith('sudo') ? `${Config.options.apps.terminal} fish -C '${cleanedCommand}'` : cleanedCommand]);
             }
         });
+        const fileResultObjects = (root.rawFileResults || []).map(file => {
+            return resultComp.createObject(null, {
+                name: file.name,
+                type: file.dir,
+                verb: Translation.tr("Open"),
+                iconName: file.icon,
+                iconType: LauncherSearchResult.IconType.Material,
+                execute: () => {
+                    Quickshell.execDetached(["xdg-open", file.path]);
+                },
+                actions: [
+                    resultComp.createObject(null, {
+                        name: Translation.tr("Open Containing Folder"),
+                        iconName: "folder_open",
+                        iconType: LauncherSearchResult.IconType.Material,
+                        execute: () => {
+                            Quickshell.execDetached(["dolphin", "--select", file.path]);
+                        }
+                    }),
+                    resultComp.createObject(null, {
+                        name: Translation.tr("Copy Path"),
+                        iconName: "content_copy",
+                        iconType: LauncherSearchResult.IconType.Material,
+                        execute: () => {
+                            Quickshell.clipboardText = file.path;
+                        }
+                    }),
+                    resultComp.createObject(null, {
+                        name: Translation.tr("Open in Terminal"),
+                        iconName: "terminal",
+                        iconType: LauncherSearchResult.IconType.Material,
+                        execute: () => {
+                            let dir = file.isDir ? file.path : FileUtils.parentDirectory(file.path);
+                            Quickshell.execDetached(["kitty", "-1", "--directory", dir]);
+                        }
+                    })
+                ]
+            });
+        });
+
+        const cleanWeb = root.cleanWebQuery(root.query);
         const webSearchResultObject = resultComp.createObject(null, {
-            name: StringUtils.cleanPrefix(root.query, Config.options.search.prefix.webSearch),
+            name: cleanWeb,
             verb: Translation.tr("Search"),
-            type: Translation.tr("Web search"),
+            type: Translation.tr("Search Kagi"),
             iconName: 'travel_explore',
             iconType: LauncherSearchResult.IconType.Material,
             execute: () => {
-                let query = StringUtils.cleanPrefix(root.query, Config.options.search.prefix.webSearch);
-                let url = Config.options.search.engineBaseUrl + query;
-                for (let site of Config.options.search.excludedSites) {
-                    url += ` -site:${site}`;
-                }
-                Qt.openUrlExternally(url);
-            }
+                let url = Config.options.search.engineBaseUrl + encodeURIComponent(cleanWeb);
+                Quickshell.execDetached(["firefox", "-P", "personal", url]);
+            },
+            actions: [
+                resultComp.createObject(null, {
+                    name: Translation.tr("Open in New Tab"),
+                    iconName: "open_in_new",
+                    iconType: LauncherSearchResult.IconType.Material,
+                    execute: () => {
+                        let url = Config.options.search.engineBaseUrl + encodeURIComponent(cleanWeb);
+                        Quickshell.execDetached(["firefox", "-P", "personal", url]);
+                    }
+                }),
+                resultComp.createObject(null, {
+                    name: Translation.tr("Copy URL"),
+                    iconName: "content_copy",
+                    iconType: LauncherSearchResult.IconType.Material,
+                    execute: () => {
+                        let url = Config.options.search.engineBaseUrl + encodeURIComponent(cleanWeb);
+                        Quickshell.clipboardText = url;
+                    }
+                })
+            ]
         });
+
+        const kagiResultObjects = (root.rawKagiResults || []).map(item => {
+            const isDirectResult = item.type === "result";
+            return resultComp.createObject(null, {
+                name: item.title,
+                comment: item.snippet || "",
+                verb: isDirectResult ? Translation.tr("Open") : Translation.tr("Search"),
+                type: isDirectResult ? (item.domain || "Web") : "Kagi suggestion",
+                iconName: 'travel_explore',
+                iconType: LauncherSearchResult.IconType.Material,
+                execute: () => {
+                    Quickshell.execDetached(["firefox", "-P", "personal", item.url]);
+                },
+                actions: [
+                    resultComp.createObject(null, {
+                        name: Translation.tr("Open in New Tab"),
+                        iconName: "open_in_new",
+                        iconType: LauncherSearchResult.IconType.Material,
+                        execute: () => {
+                            Quickshell.execDetached(["firefox", "-P", "personal", item.url]);
+                        }
+                    }),
+                    resultComp.createObject(null, {
+                        name: Translation.tr("Copy Link"),
+                        iconName: "content_copy",
+                        iconType: LauncherSearchResult.IconType.Material,
+                        execute: () => {
+                            Quickshell.clipboardText = item.url;
+                        }
+                    })
+                ]
+            });
+        });
+
         const launcherActionObjects = root.allActions.map(action => {
             const actionString = `${Config.options.search.prefix.action}${action.action}`;
             if (actionString.startsWith(root.query) || root.query.startsWith(actionString)) {
@@ -329,12 +549,21 @@ Singleton {
         const startsWithMathPrefix = root.query.startsWith(Config.options.search.prefix.math);
         const startsWithShellCommandPrefix = root.query.startsWith(Config.options.search.prefix.shellCommand);
         const startsWithWebSearchPrefix = root.query.startsWith(Config.options.search.prefix.webSearch);
+        const filePrefix = Config.options.search.prefix.file ?? "~";
+        const startsWithFilePrefix = root.query.startsWith(filePrefix) || root.query.startsWith("~/") || root.query.startsWith("/");
+
+        if (startsWithFilePrefix) {
+            return fileResultObjects;
+        }
+
         if (startsWithNumber || startsWithMathPrefix) {
             result.push(mathResultObject);
         } else if (startsWithShellCommandPrefix) {
             result.push(commandResultObject);
         } else if (startsWithWebSearchPrefix) {
             result.push(webSearchResultObject);
+            result = result.concat(kagiResultObjects);
+            return result;
         }
 
         //////////////// Apps //////////////////
@@ -343,14 +572,23 @@ Singleton {
         ////////// Launcher actions ////////////
         result = result.concat(launcherActionObjects);
 
+        ////////////// Files ///////////////////
+        if (fileResultObjects.length > 0) {
+            result = result.concat(fileResultObjects.slice(0, 5));
+        }
+
         /// Math result, command, web search ///
         if (Config.options.search.prefix.showDefaultActionsWithoutPrefix) {
             if (!startsWithShellCommandPrefix)
                 result.push(commandResultObject);
             if (!startsWithNumber && !startsWithMathPrefix)
                 result.push(mathResultObject);
-            if (!startsWithWebSearchPrefix)
+            if (!startsWithWebSearchPrefix) {
                 result.push(webSearchResultObject);
+                if (kagiResultObjects.length > 0) {
+                    result = result.concat(kagiResultObjects.slice(0, 3));
+                }
+            }
         }
 
         return result;

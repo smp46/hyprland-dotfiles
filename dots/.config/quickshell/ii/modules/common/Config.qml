@@ -476,8 +476,9 @@ Singleton {
 
             property JsonObject search: JsonObject {
                 property int nonAppResultDelay: 30 // This prevents lagging when typing
-                property string engineBaseUrl: "https://www.google.com/search?q="
-                property list<string> excludedSites: ["quora.com", "facebook.com"]
+                property string engineBaseUrl: "https://kagi.com/search?q="
+                property string kagiToken: ""
+                property list<string> excludedSites: []
                 property bool sloppy: false // Uses levenshtein distance based scoring instead of fuzzy sort. Very weird.
                 property JsonObject prefix: JsonObject {
                     property bool showDefaultActionsWithoutPrefix: true
@@ -485,6 +486,7 @@ Singleton {
                     property string app: ">"
                     property string clipboard: ";"
                     property string emojis: ":"
+                    property string file: "~"
                     property string math: "="
                     property string shellCommand: "$"
                     property string webSearch: "?"

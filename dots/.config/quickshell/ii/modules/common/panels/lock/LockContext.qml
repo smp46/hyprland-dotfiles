@@ -50,6 +50,17 @@ Scope {
         }
     }
 
+    Timer {
+        id: fingerRetryTimer
+        interval: 2000
+        repeat: false
+        onTriggered: {
+            root.tryFingerUnlock()
+        }
+    }
+  
+
+
     onCurrentTextChanged: {
         if (currentText.length > 0) {
             showFailure = false;
@@ -130,7 +141,7 @@ Scope {
                 root.unlocked(root.targetAction);
                 stopFingerPam();
             } else if (result == PamResult.Error) { // if timeout or etc..
-                tryFingerUnlock()
+              fingerRetryTimer.restart()
             }
         }
     }

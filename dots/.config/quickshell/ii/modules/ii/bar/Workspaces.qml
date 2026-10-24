@@ -24,13 +24,14 @@ ButtonMouseArea {
     property bool superPressAndHeld: false // Relevant modifications at bottom of file
 
     property real workspaceButtonWidth: 26
+    property real widgetPadding: 4
     property real activeWorkspaceMargin: 2
     property real activeWorkspaceSize: workspaceButtonWidth - activeWorkspaceMargin * 2
     property real workspaceIconSize: workspaceButtonWidth * 0.69
     property real workspaceIconSizeShrinked: workspaceButtonWidth * 0.55
     property real workspaceIconOpacityShrinked: 1
     property real workspaceIconMarginShrinked: -4
-    property int workspaceIndexInGroup: (monitor?.activeWorkspace?.id - 1) % wsModel.shownCount
+    property int workspaceIndexInGroup: ((monitor?.activeWorkspace?.id ?? 1) - 1) % wsModel.shownCount
     property real specialTextSize: workspaceButtonWidth * 0.5
 
     Layout.alignment: vertical ? Qt.AlignHCenter : Qt.AlignVCenter
@@ -133,13 +134,13 @@ ButtonMouseArea {
                         implicitHeight: root.vertical ? undirectionalLength : undirectionalWidth
 
                         Behavior on undirectionalWidth {
-                            animation: Appearance.animation.elementMoveSmall.numberAnimation.createObject(this)
+                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
                         }
                         Behavior on undirectionalLength {
-                            animation: Appearance.animation.elementMoveSmall.numberAnimation.createObject(this)
+                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
                         }
                         Behavior on undirectionalOffset {
-                            animation: Appearance.animation.elementMoveSmall.numberAnimation.createObject(this)
+                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
                         }
                     }
                 }
@@ -414,6 +415,8 @@ ButtonMouseArea {
         property var indexPair: AnimatedTabIndexPair {
             id: idxPair
             index: trailingIndicator.index
+            idx1Duration: 80
+            idx2Duration: 180
         }
 
         StyledRectangle {
