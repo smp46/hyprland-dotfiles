@@ -25,14 +25,15 @@ Singleton {
     function cleanFileQuery(raw) {
         let q = raw.trim();
         let pfx = Config.options.search.prefix.file ?? "~";
-        if (q.startsWith(pfx)) q = q.slice(pfx.length);
-        else if (q.startsWith("~/")) q = q.slice(2);
+        if (q.startsWith("~/")) q = q.slice(2);
+        else if (q.startsWith(pfx)) q = q.slice(pfx.length);
         return q.trim();
     }
 
     function cleanWebQuery(raw) {
+        let q = raw.trim();
         let pfx = Config.options.search.prefix.webSearch ?? "?";
-        return StringUtils.cleanPrefix(raw, pfx).trim();
+        return StringUtils.cleanPrefix(q, pfx).trim();
     }
 
     // https://specifications.freedesktop.org/menu/latest/category-registry.html
@@ -170,60 +171,74 @@ Singleton {
             kagiSearchProc.running = false;
             nonAppResultsTimer.stop();
         } else {
-            nonAppResultsTimer.restart();
+            let filePrefix = Config.options.search.prefix.file ?? "~";
+            if (q === filePrefix || q === "~/") {
+                nonAppResultsTimer.stop();
+                root.triggerNonAppSearch();
+            } else {
+                nonAppResultsTimer.restart();
+            }
+        }
+    }
+
+    function triggerNonAppSearch() {
+        let q = root.query.trim();
+        if (q === "") return;
+
+        // Math
+        let expr = q;
+        if (expr.startsWith(Config.options.search.prefix.math)) {
+            expr = expr.slice(Config.options.search.prefix.math.length).trim();
+        }
+        if (expr !== "" && (q.startsWith(Config.options.search.prefix.math) || /^\d/.test(q))) {
+            if (expr !== root.lastMathQuery) {
+                root.lastMathQuery = expr;
+                mathProc.calculateExpression(expr);
+            }
+        } else {
+            root.mathResult = "";
+            root.lastMathQuery = "";
+        }
+
+        // File search
+        let cleanFile = root.cleanFileQuery(q);
+        let filePrefix = Config.options.search.prefix.file ?? "~";
+        let isFileSearch = q.startsWith(filePrefix) || q.startsWith("~/") || q.startsWith("/");
+        if (isFileSearch || cleanFile.length >= 2) {
+            let fileKey = (isFileSearch ? "F:" : "G:") + cleanFile;
+            if (fileKey !== root.lastFileQuery) {
+                root.lastFileQuery = fileKey;
+                fileSearchProc.search(cleanFile, isFileSearch ? 15 : 5);
+            }
+        } else {
+            root.rawFileResults = [];
+            root.lastFileQuery = "";
+        }
+
+        // Kagi web search
+        let webPrefix = Config.options.search.prefix.webSearch ?? "?";
+        let isWebSearch = q.startsWith(webPrefix);
+        let cleanWeb = root.cleanWebQuery(q);
+        let allowDefaultWeb = Config.options.search.prefix.showDefaultActionsWithoutPrefix && !isFileSearch && !q.startsWith(Config.options.search.prefix.action) && !q.startsWith(Config.options.search.prefix.app) && !q.startsWith(Config.options.search.prefix.clipboard) && !q.startsWith(Config.options.search.prefix.emojis) && !q.startsWith(Config.options.search.prefix.math) && !q.startsWith(Config.options.search.prefix.shellCommand);
+        if ((isWebSearch && cleanWeb.length >= 1) || (allowDefaultWeb && cleanWeb.length >= 2)) {
+            if (cleanWeb !== root.lastKagiQuery) {
+                root.lastKagiQuery = cleanWeb;
+                kagiSearchProc.search(cleanWeb);
+            }
+        } else if (!isWebSearch && !allowDefaultWeb) {
+            root.rawKagiResults = [];
+            root.lastKagiQuery = "";
+        } else if (cleanWeb.length === 0) {
+            root.rawKagiResults = [];
+            root.lastKagiQuery = "";
         }
     }
 
     Timer {
         id: nonAppResultsTimer
-        interval: 180
+        interval: Config.options.search.nonAppResultDelay ?? 30
         repeat: false
-        onTriggered: {
-            let q = root.query.trim();
-            if (q === "") return;
-
-            // Math
-            let expr = q;
-            if (expr.startsWith(Config.options.search.prefix.math)) {
-                expr = expr.slice(Config.options.search.prefix.math.length).trim();
-            }
-            if (expr !== "" && (q.startsWith(Config.options.search.prefix.math) || /^\d/.test(q))) {
-                if (expr !== root.lastMathQuery) {
-                    root.lastMathQuery = expr;
-                    mathProc.calculateExpression(expr);
-                }
-            } else {
-                root.mathResult = "";
-                root.lastMathQuery = "";
-            }
-
-            // File search
-            let cleanFile = root.cleanFileQuery(q);
-            let filePrefix = Config.options.search.prefix.file ?? "~";
-            let isFileSearch = q.startsWith(filePrefix) || q.startsWith("~/") || q.startsWith("/");
-            if (cleanFile.length >= 2) {
-                if (cleanFile !== root.lastFileQuery) {
-                    root.lastFileQuery = cleanFile;
-                    fileSearchProc.search(cleanFile, isFileSearch ? 15 : 5);
-                }
-            } else {
-                root.rawFileResults = [];
-                root.lastFileQuery = "";
-            }
-
-            // Kagi web search
-            let isWebSearch = q.startsWith(Config.options.search.prefix.webSearch);
-            let cleanWeb = root.cleanWebQuery(q);
-            if (isWebSearch && cleanWeb.length >= 1) {
-                if (cleanWeb !== root.lastKagiQuery) {
-                    root.lastKagiQuery = cleanWeb;
-                    kagiSearchProc.search(cleanWeb);
-                }
-            } else {
-                root.rawKagiResults = [];
-                root.lastKagiQuery = "";
-            }
-        }
+        onTriggered: root.triggerNonAppSearch()
     }
 
     Process {
@@ -244,53 +259,112 @@ Singleton {
     Process {
         id: fileSearchProc
         property string queryTarget: ""
+        property int maxCountTarget: 15
+        property string pendingQuery: ""
+        property int pendingMaxCount: 15
+        property bool hasPending: false
         stdout: StdioCollector {
             onStreamFinished: {
-                if (fileSearchProc.queryTarget !== root.cleanFileQuery(root.query)) return;
-                try {
-                    root.rawFileResults = JSON.parse(text);
-                } catch(e) {
-                    root.rawFileResults = [];
+                let txt = text ? text.trim() : "";
+                if (txt.length > 0 && fileSearchProc.queryTarget === root.cleanFileQuery(root.query)) {
+                    try {
+                        root.rawFileResults = JSON.parse(txt);
+                    } catch(e) {
+                        root.rawFileResults = [];
+                    }
                 }
             }
         }
+        onRunningChanged: {
+            if (!fileSearchProc.running && fileSearchProc.hasPending) {
+                let pq = fileSearchProc.pendingQuery;
+                let pm = fileSearchProc.pendingMaxCount;
+                fileSearchProc.hasPending = false;
+                fileSearchProc.queryTarget = pq;
+                fileSearchProc.maxCountTarget = pm;
+                fileSearchProc.command = [
+                    "python3",
+                    "-S",
+                    Quickshell.shellPath("scripts/search/filesearch.py"),
+                    pq,
+                    String(pm || 15)
+                ];
+                fileSearchProc.running = true;
+            }
+        }
         function search(searchQuery, maxCount) {
-            fileSearchProc.running = false;
-            fileSearchProc.queryTarget = searchQuery;
-            fileSearchProc.command = [
-                "python3",
-                Quickshell.shellPath("scripts/search/filesearch.py"),
-                searchQuery,
-                String(maxCount || 15)
-            ];
-            fileSearchProc.running = true;
+            if (fileSearchProc.running) {
+                fileSearchProc.pendingQuery = searchQuery;
+                fileSearchProc.pendingMaxCount = maxCount || 15;
+                fileSearchProc.hasPending = true;
+                fileSearchProc.running = false;
+            } else {
+                fileSearchProc.hasPending = false;
+                fileSearchProc.queryTarget = searchQuery;
+                fileSearchProc.maxCountTarget = maxCount || 15;
+                fileSearchProc.command = [
+                    "python3",
+                    "-S",
+                    Quickshell.shellPath("scripts/search/filesearch.py"),
+                    searchQuery,
+                    String(maxCount || 15)
+                ];
+                fileSearchProc.running = true;
+            }
         }
     }
 
     Process {
         id: kagiSearchProc
         property string queryTarget: ""
+        property string pendingQuery: ""
+        property bool hasPending: false
         stdout: StdioCollector {
             onStreamFinished: {
-                if (kagiSearchProc.queryTarget !== root.cleanWebQuery(root.query)) return;
-                try {
-                    root.rawKagiResults = JSON.parse(text);
-                } catch(e) {
-                    root.rawKagiResults = [];
+                let txt = text ? text.trim() : "";
+                if (txt.length > 0 && kagiSearchProc.queryTarget === root.cleanWebQuery(root.query)) {
+                    try {
+                        root.rawKagiResults = JSON.parse(txt);
+                    } catch(e) {
+                        root.rawKagiResults = [];
+                    }
                 }
             }
         }
+        onRunningChanged: {
+            if (!kagiSearchProc.running && kagiSearchProc.hasPending) {
+                let pq = kagiSearchProc.pendingQuery;
+                kagiSearchProc.hasPending = false;
+                kagiSearchProc.queryTarget = pq;
+                let token = Config.options.search.kagiToken || "";
+                kagiSearchProc.command = [
+                    "python3",
+                    "-S",
+                    Quickshell.shellPath("scripts/search/kagisearch.py"),
+                    pq,
+                    token
+                ];
+                kagiSearchProc.running = true;
+            }
+        }
         function search(searchQuery) {
-            kagiSearchProc.running = false;
-            kagiSearchProc.queryTarget = searchQuery;
-            let token = Config.options.search.kagiToken || "";
-            kagiSearchProc.command = [
-                "python3",
-                Quickshell.shellPath("scripts/search/kagisearch.py"),
-                searchQuery,
-                token
-            ];
-            kagiSearchProc.running = true;
+            if (kagiSearchProc.running) {
+                kagiSearchProc.pendingQuery = searchQuery;
+                kagiSearchProc.hasPending = true;
+                kagiSearchProc.running = false;
+            } else {
+                kagiSearchProc.hasPending = false;
+                kagiSearchProc.queryTarget = searchQuery;
+                let token = Config.options.search.kagiToken || "";
+                kagiSearchProc.command = [
+                    "python3",
+                    "-S",
+                    Quickshell.shellPath("scripts/search/kagisearch.py"),
+                    searchQuery,
+                    token
+                ];
+                kagiSearchProc.running = true;
+            }
         }
     }
 
@@ -423,6 +497,7 @@ Singleton {
         const fileResultObjects = (root.rawFileResults || []).map(file => {
             return resultComp.createObject(null, {
                 name: file.name,
+                rawValue: file.path,
                 type: file.dir,
                 verb: Translation.tr("Open"),
                 iconName: file.icon,
@@ -497,6 +572,7 @@ Singleton {
             const isDirectResult = item.type === "result";
             return resultComp.createObject(null, {
                 name: item.title,
+                rawValue: item.url,
                 comment: item.snippet || "",
                 verb: isDirectResult ? Translation.tr("Open") : Translation.tr("Search"),
                 type: isDirectResult ? (item.domain || "Web") : "Kagi suggestion",

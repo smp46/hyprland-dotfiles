@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 import sys
 import json
-import urllib.request
+import subprocess
 import urllib.parse
-from urllib.parse import urlparse
+
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0"
 
 def get_kagi_suggestions(query):
     encoded = urllib.parse.quote(query)
     url = f"https://kagi.com/api/autosuggest?q={encoded}"
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0"}
-    )
     try:
-        with urllib.request.urlopen(req, timeout=1.5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        proc = subprocess.run(
+            ["curl", "-4", "-s", "--max-time", "1.5", "-A", USER_AGENT, url],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=1.6
+        )
+        if proc.returncode == 0 and proc.stdout:
+            data = json.loads(proc.stdout)
             if len(data) > 1 and isinstance(data[1], list):
                 results = []
                 for s in data[1]:
@@ -35,16 +39,21 @@ def get_kagi_suggestions(query):
 def get_kagi_api_results(query, token):
     encoded = urllib.parse.quote(query)
     url = f"https://kagi.com/api/v1/search?q={encoded}&limit=6"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bot {token}",
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0"
-        }
-    )
     try:
-        with urllib.request.urlopen(req, timeout=2.0) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        proc = subprocess.run(
+            [
+                "curl", "-4", "-s", "--max-time", "2.0",
+                "-H", f"Authorization: Bot {token}",
+                "-A", USER_AGENT,
+                url
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2.1
+        )
+        if proc.returncode == 0 and proc.stdout:
+            data = json.loads(proc.stdout)
             items = data.get("data", [])
             results = []
             for item in items:
@@ -52,7 +61,7 @@ def get_kagi_api_results(query, token):
                 link = item.get("url", "")
                 snippet = item.get("snippet", "")
                 if title and link:
-                    domain = urlparse(link).netloc or "kagi.com"
+                    domain = urllib.parse.urlparse(link).netloc or "kagi.com"
                     results.append({
                         "title": title,
                         "url": link,
@@ -89,3 +98,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
