@@ -20,6 +20,8 @@ Singleton {
 	property real swapUsed: swapTotal - swapFree
     property real swapUsedPercentage: swapTotal > 0 ? (swapUsed / swapTotal) : 0
     property real cpuUsage: 0
+    property real cpuTemperature: -1 // °C, -1 when no sensor was found
+    property string cpuTempPath: ""
     property var previousCpuStats
 
     property string maxAvailableMemoryString: kbToGbString(ResourceUsage.memoryTotal)
@@ -92,6 +94,13 @@ Singleton {
                 previousCpuStats = { total, idle }
             }
 
+            // Read CPU package temperature (millidegrees)
+            if (root.cpuTempPath !== "") {
+                fileCpuTemp.reload()
+                const milli = Number(fileCpuTemp.text())
+                if (!isNaN(milli) && milli > 0) cpuTemperature = milli / 1000
+            }
+
             root.updateHistories()
             interval = Config.options?.resources?.updateInterval ?? 3000
         }
@@ -99,6 +108,18 @@ Singleton {
 
 	FileView { id: fileMeminfo; path: "/proc/meminfo" }
     FileView { id: fileStat; path: "/proc/stat" }
+    FileView { id: fileCpuTemp; path: root.cpuTempPath }
+
+    Process {
+        id: findCpuTempPathProc
+        // hwmon indices aren't stable across boots, so look the sensor up by driver name
+        command: ["bash", "-c", "for d in /sys/class/hwmon/hwmon*; do case $(cat $d/name) in coretemp|k10temp|zenpower) echo $d/temp1_input; exit;; esac; done"]
+        running: true
+        stdout: StdioCollector {
+            id: cpuTempPathCollector
+            onStreamFinished: root.cpuTempPath = cpuTempPathCollector.text.trim()
+        }
+    }
 
     Process {
         id: findCpuMaxFreqProc
