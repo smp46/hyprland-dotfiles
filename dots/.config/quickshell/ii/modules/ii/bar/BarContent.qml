@@ -48,8 +48,8 @@ Item { // Bar content region
         border.color: Appearance.colors.colLayer0Border
     }
 
-    FocusedScrollMouseArea { // Left side | scroll to change brightness
-        id: barLeftSideMouseArea
+    Item { // Left section
+        id: barLeftSideArea
 
         anchors {
             top: parent.top
@@ -60,14 +60,6 @@ Item { // Bar content region
         implicitWidth: leftSectionRowLayout.implicitWidth
         implicitHeight: Appearance.sizes.baseBarHeight
 
-        onScrollDown: Brightness.decreaseBrightness()
-        onScrollUp: Brightness.increaseBrightness()
-        onMovedAway: GlobalStates.osdBrightnessOpen = false
-        onPressed: event => {
-            if (event.button === Qt.LeftButton)
-                GlobalStates.sidebarLeftOpen = !GlobalStates.sidebarLeftOpen;
-        }
-
         RowLayout {
             id: leftSectionRowLayout
             anchors.fill: parent
@@ -77,7 +69,6 @@ Item { // Bar content region
                 id: kdeConnectBarButton
                 Layout.alignment: Qt.AlignVCenter
                 Layout.leftMargin: Appearance.rounding.screenRounding
-                colBackground: barLeftSideMouseArea.hovered ? Appearance.colors.colLayer1Hover : ColorUtils.transparentize(Appearance.colors.colLayer1Hover, 1)
             }
 
             ActiveWindow {
@@ -178,8 +169,8 @@ Item { // Bar content region
         }
     }
 
-    FocusedScrollMouseArea { // Right side | scroll to change volume
-        id: barRightSideMouseArea
+    Item { // Right side
+        id: barRightSideArea
 
         anchors {
             top: parent.top
@@ -189,15 +180,6 @@ Item { // Bar content region
         }
         implicitWidth: rightSectionRowLayout.implicitWidth
         implicitHeight: Appearance.sizes.baseBarHeight
-
-        onScrollDown: Audio.decrementVolume();
-        onScrollUp: Audio.incrementVolume();
-        onMovedAway: GlobalStates.osdVolumeOpen = false;
-        onPressed: event => {
-            if (event.button === Qt.LeftButton) {
-                GlobalStates.sidebarRightOpen = !GlobalStates.sidebarRightOpen;
-            }
-        }
 
         RowLayout {
             id: rightSectionRowLayout
@@ -216,7 +198,7 @@ Item { // Bar content region
                 implicitHeight: indicatorsRowLayout.implicitHeight + 5 * 2
 
                 buttonRadius: Appearance.rounding.full
-                colBackground: barRightSideMouseArea.hovered ? Appearance.colors.colLayer1Hover : ColorUtils.transparentize(Appearance.colors.colLayer1Hover, 1)
+                colBackground: rightSidebarButton.hovered ? Appearance.colors.colLayer1Hover : ColorUtils.transparentize(Appearance.colors.colLayer1Hover, 1)
                 colBackgroundHover: Appearance.colors.colLayer1Hover
                 colRipple: Appearance.colors.colLayer1Active
                 colBackgroundToggled: Appearance.colors.colSecondaryContainer

@@ -156,9 +156,10 @@ set_thumbnail_path() {
 }
 
 categorize_wallpaper() {
-    img_cat=$("$SCRIPT_DIR/../ai/gemini-categorize-wallpaper.sh" "$1")
-    # notify-send "Wallpaper category" "$img_cat"
-    echo "$img_cat" > "$STATE_DIR/user/generated/wallpaper/category.txt"
+    if [ -f "$SCRIPT_DIR/../ai/gemini-categorize-wallpaper.sh" ]; then
+        img_cat=$("$SCRIPT_DIR/../ai/gemini-categorize-wallpaper.sh" "$1")
+        echo "$img_cat" > "$STATE_DIR/user/generated/wallpaper/category.txt"
+    fi
 }
 
 switch() {
