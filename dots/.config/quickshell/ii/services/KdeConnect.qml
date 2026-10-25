@@ -45,7 +45,7 @@ Singleton {
 
     Timer {
         id: pollTimer
-        interval: 6000
+        interval: 30000 // Popup refreshes on open; battery changes slowly
         running: true
         repeat: true
         triggeredOnStart: true
