@@ -26,7 +26,7 @@ Singleton {
     property var location: ({
         valid: false,
         lat: 0,
-        lon: 0
+        long: 0
     })
 
     property var data: ({
@@ -126,17 +126,27 @@ Singleton {
         }
     }
 
+    // Use GeoClue explicitly (WiFi/IP lookups via its configured Ichnaea
+    // backend, BeaconDB by default) instead of letting Qt pick a plugin
     PositionSource {
         id: positionSource
+        name: "geoclue2"
+        preferredPositioningMethods: PositionSource.AllPositioningMethods
         updateInterval: root.fetchInterval
+        PluginParameter {
+            name: "desktopId"
+            value: "quickshell"
+        }
 
         onPositionChanged: {
             // update the location if the given location is valid
             // if it fails getting the location, use the last valid location
             if (position.latitudeValid && position.longitudeValid) {
-                root.location.lat = position.coordinate.latitude;
-                root.location.long = position.coordinate.longitude;
-                root.location.valid = true;
+                root.location = {
+                    valid: true,
+                    lat: position.coordinate.latitude,
+                    long: position.coordinate.longitude
+                };
                 // console.info(`📍 Location: ${position.coordinate.latitude}, ${position.coordinate.longitude}`);
                 root.getData();
                 // if can't get initialized with valid location deactivate the GPS
@@ -149,7 +159,7 @@ Singleton {
         onValidityChanged: {
             if (!positionSource.valid) {
                 positionSource.stop();
-                root.location.valid = false;
+                root.location = { valid: false, lat: 0, long: 0 };
                 root.gpsActive = false;
                 Quickshell.execDetached(["notify-send", Translation.tr("Weather Service"), Translation.tr("Cannot find a GPS service. Using the fallback method instead."), "-a", "Shell"]);
                 console.error("[WeatherService] Could not aquire a valid backend plugin.");
@@ -157,8 +167,10 @@ Singleton {
         }
     }
 
+    // GeoClue only reports when the position changes, so refresh periodically
+    // regardless; getData() uses the last known coordinates when available
     Timer {
-        running: !root.gpsActive
+        running: !root.gpsActive || root.location.valid
         repeat: true
         interval: root.fetchInterval
         triggeredOnStart: !root.gpsActive
