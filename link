@@ -1,92 +1,136 @@
 #!/usr/bin/env bash
-# Symlink live config to this repo's dots/ (stow-style).
+# Symlink live config to this repo's dots/.
 #   ./link        apply
 #   ./link -n     dry run (print actions only)
 #
-# - A directory is linked whole ("folded") when the live copy contains nothing that
-#   isn't in the repo and nothing under it is excluded; otherwise it is recursed into.
-# - Anything replaced is moved to ~/.local/state/dotfiles-link-backup/<timestamp>/.
-# - Paths in EXCLUDE (relative to dots/) are never linked: they are generated at
-#   runtime or machine-specific. They are left completely untouched.
+# Layout:
+#   - Every entry directly under dots/.config is linked WHOLE (directory or file),
+#     so files added/removed in the repo appear live with no relinking.
+#     Only brand-new top-level entries in dots/.config need ./link to be re-run.
+#   - dots/.local/share and PER_FILE dirs (e.g. .config/systemd) are linked per
+#     file, because those dirs are shared with other applications.
+#   - Files generated at runtime inside linked dirs are gitignored. Where a program
+#     needs one to exist before first generation, a tracked "<name>.default" is
+#     copied to "<name>" when missing.
+#   - EXCLUDE paths are never linked (apps rewrite them atomically, which would
+#     replace a symlink). Existing links at those paths become real copies.
+#
+# Migrating a real directory to a link: live files that the repo doesn't track
+# (or that are gitignored, e.g. current matugen colours) are moved into the repo
+# dir; live copies of tracked files are moved to the backup dir.
+# Backups: ~/.local/state/dotfiles-link-backup/<timestamp>/
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")" && pwd)"
 SRC_ROOT="$REPO/dots"
-DST_ROOT="$HOME"
 BACKUP="$HOME/.local/state/dotfiles-link-backup/$(date +%Y%m%d-%H%M%S)"
 DRY=false; [[ "${1:-}" == "-n" ]] && DRY=true
 
 EXCLUDE=(
-  .config/hypr/hyprland/colors.lua     # matugen output
-  .config/hypr/hyprlock/colors.conf    # matugen output
-  .config/fuzzel/fuzzel_theme.ini      # matugen output
   .config/kdeglobals                   # rewritten by KDE / material-you colours
-  .config/fish/fish_variables          # rewritten by fish
-  .config/hypr/hyprland.conf           # stub; its presence blocks the Lua config
-  .config/hypr/monitors.lua            # machine-specific monitor layout
   .config/dolphinrc                    # rewritten by Dolphin (window/view state)
   .config/konsolerc                    # rewritten by Konsole (window state)
   .local/share/kxmlgui5                # KDE toolbar/menu layouts written at runtime
 )
 
+# Linked per file instead of whole: dirs that other tools also write into.
+PER_FILE=(
+  .config/systemd                      # systemctl enable/link writes *.wants symlinks here
+)
+
+say() { echo "$*"; }
+run() { echo "    $*"; $DRY || "$@"; }
 is_excluded() { local p; for p in "${EXCLUDE[@]}"; do [[ "$1" == "$p" ]] && return 0; done; return 1; }
-has_excluded_under() { local p; for p in "${EXCLUDE[@]}"; do [[ "$p" == "$1/"* ]] && return 0; done; return 1; }
+links_to() { [[ -L "$1" && "$(readlink "$1")" == "$2" ]]; }
 
-run() { echo "  $*"; $DRY || "$@"; }
-
-backup() { # $1 = rel path
-  echo "backup  ~/$1"
-  run mkdir -p "$(dirname "$BACKUP/$1")"
-  run mv "$DST_ROOT/$1" "$BACKUP/$1"
+backup() { # $1 = absolute path under $HOME
+  local rel="${1#$HOME/}"
+  say "backup  ~/$rel"
+  run mkdir -p "$(dirname "$BACKUP/$rel")"
+  run mv "$1" "$BACKUP/$rel"
 }
 
-link() { # $1 = rel path
-  echo "link    ~/$1 -> dots/$1"
-  run ln -s "$SRC_ROOT/$1" "$DST_ROOT/$1"
-}
+# Is repo-relative path $1 tracked in git?
+tracked() { git -C "$REPO" ls-files --error-unmatch "dots/$1" >/dev/null 2>&1; }
 
-# True if live dir $2 has any entry not present in repo dir $1
-live_has_extra() {
-  local s="$1" t="$2" e
-  while IFS= read -r -d '' e; do
-    [[ -e "$s/$e" || -L "$s/$e" ]] || return 0
-  done < <(cd "$t" && find . -mindepth 1 \( -type f -o -type l \) -printf '%P\0')
-  return 1
-}
-
-walk() { # $1 = rel dir ("" for root)
-  local rel="$1" e r s t
-  for s in "$SRC_ROOT/${rel:+$rel/}"* "$SRC_ROOT/${rel:+$rel/}".[!.]*; do
-    [[ -e "$s" || -L "$s" ]] || continue
-    e="$(basename "$s")"; r="${rel:+$rel/}$e"; t="$DST_ROOT/$r"
-    [[ "$e" == .git ]] && continue
-
-    is_excluded "$r" && continue
-
-    if [[ -L "$t" && "$(readlink "$t")" == "$s" ]]; then continue; fi  # already linked
-
-    if [[ -d "$s" && ! -L "$s" ]]; then
-      if [[ ! -e "$t" && ! -L "$t" ]]; then
-        if has_excluded_under "$r"; then run mkdir -p "$t"; walk "$r"; else link "$r"; fi
-      elif [[ -d "$t" && ! -L "$t" ]]; then
-        # Never fold the top-level containers (~/.config, ~/.local, ~/.local/share)
-        if [[ "$r" == .config || "$r" == .local || "$r" == .local/share ]] || has_excluded_under "$r" || live_has_extra "$s" "$t"; then
-          walk "$r"
-        else
-          backup "$r"; link "$r"
-        fi
-      else
-        backup "$r"; link "$r"
-      fi
+# Replace real dir $2 (live) with a link to $1 (repo), preserving untracked/ignored live files.
+migrate_dir() {
+  local s="$1" t="$2" rel="$3" f
+  while IFS= read -r -d '' f; do
+    if [[ -L "$t/$f" && "$(realpath -m "$t/$f")" == "$s/$f"* ]]; then
+      continue                                    # old per-file link into the repo
+    elif tracked "$rel/$f"; then
+      continue                                    # repo copy wins; live copy is backed up with the dir
     else
-      [[ -e "$t" || -L "$t" ]] && backup "$r"
-      run mkdir -p "$(dirname "$t")"
-      link "$r"
+      say "keep    ~/$rel/$f (untracked/ignored -> moved into repo dir)"
+      run mkdir -p "$(dirname "$s/$f")"
+      run mv -f "$t/$f" "$s/$f"
     fi
-  done
+  done < <(cd "$t" && find . -mindepth 1 \( -type f -o -type l \) -printf '%P\0')
+  backup "$t"
 }
 
-$DRY && echo "### DRY RUN — nothing will change"
-walk ""
-$DRY || { [[ -d "$BACKUP" ]] && echo "Backups: $BACKUP"; }
-echo "Done."
+link_whole() { # $1 = repo-relative path (e.g. .config/hypr)
+  local rel="$1" s="$SRC_ROOT/$1" t="$HOME/$1"
+  links_to "$t" "$s" && return 0
+  if [[ -d "$s" && -d "$t" && ! -L "$t" ]]; then
+    migrate_dir "$s" "$t" "$rel"
+  elif [[ -e "$t" || -L "$t" ]]; then
+    backup "$t"
+  fi
+  say "link    ~/$rel -> dots/$rel"
+  run mkdir -p "$(dirname "$t")"
+  run ln -s "$s" "$t"
+}
+
+unlink_excluded() { # $1 = repo-relative path; turn a link into the repo into a real copy
+  local rel="$1" s="$SRC_ROOT/$1" t="$HOME/$1"
+  if [[ -L "$t" && "$(readlink "$t")" == "$s" ]]; then
+    say "unlink  ~/$rel (excluded -> real copy)"
+    run rm "$t"
+    run cp -a "$s" "$t"
+  fi
+}
+
+link_per_file() { # $1 = repo-relative dir, linked file by file
+  local rel="$1" f
+  while IFS= read -r -d '' f; do
+    local r="$rel/$f"
+    if is_excluded "$r" || [[ -n "$(for p in "${EXCLUDE[@]}"; do [[ "$r" == "$p/"* ]] && echo x; done)" ]]; then continue; fi
+    local s="$SRC_ROOT/$r" t="$HOME/$r"
+    links_to "$t" "$s" && continue
+    [[ -e "$t" || -L "$t" ]] && backup "$t"
+    say "link    ~/$r -> dots/$r"
+    run mkdir -p "$(dirname "$t")"
+    run ln -s "$s" "$t"
+  done < <(cd "$SRC_ROOT/$rel" && find . \( -type f -o -type l \) -printf '%P\0')
+}
+
+seed_defaults() {
+  local d
+  while IFS= read -r -d '' d; do
+    local real="${d%.default}"
+    if [[ ! -e "$real" ]]; then
+      say "seed    ${real#$SRC_ROOT/} (from .default)"
+      run cp "$d" "$real"
+    fi
+  done < <(find "$SRC_ROOT" -name '*.default' -type f -print0)
+}
+
+$DRY && say "### DRY RUN — nothing will change"
+
+seed_defaults
+
+for s in "$SRC_ROOT"/.config/* "$SRC_ROOT"/.config/.[!.]*; do
+  [[ -e "$s" ]] || continue
+  rel=".config/$(basename "$s")"
+  if is_excluded "$rel"; then unlink_excluded "$rel"; continue; fi
+  if [[ " ${PER_FILE[*]} " == *" $rel "* ]]; then link_per_file "$rel"; continue; fi
+  link_whole "$rel"
+done
+
+for p in "${EXCLUDE[@]}"; do [[ "$p" == .local/* ]] && unlink_excluded "$p"; done
+[[ -d "$SRC_ROOT/.local/share" ]] && link_per_file .local/share
+
+$DRY || { [[ -d "$BACKUP" ]] && say "Backups: $BACKUP"; }
+say "Done."

@@ -15,3 +15,13 @@ __pycache__/
 
 # Emacs auto backup file
 *~
+
+# Generated at runtime inside linked config dirs (see ./link).
+# Defaults live alongside as *.default and are seeded by ./link when missing.
+/dots/.config/hypr/hyprland/colors.lua
+/dots/.config/hypr/hyprlock/colors.conf
+/dots/.config/fuzzel/fuzzel_theme.ini
+/dots/.config/fish/fish_variables
+/dots/.config/fish/conf.d/fish_frozen_*.fish
+# HyprMod atomic-write temp files
+/dots/.config/hypr/*.tmp
