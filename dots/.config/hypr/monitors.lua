@@ -1,14 +1,9 @@
--- Monitor configuration converted from monitors.conf
-hl.monitor({
-    output   = "eDP-1",
-    mode     = "1920x1200@60.0",
-    position = "1520x240",
-    scale    = 1.0,
-})
+-- Per-host monitor layout: loads monitors/<hostname>.lua if it exists.
+-- Add a layout for a new machine by creating monitors/$(hostnamectl hostname).lua
+local f = io.open("/etc/hostname", "r")
+local host = f and (f:read("*l") or ""):match("^%s*(.-)%s*$") or ""
+if f then f:close() end
 
-hl.monitor({
-    output   = "DP-1",
-    mode     = "2560x1440@59.95",
-    position = "3440x0",
-    scale    = 1.0,
-})
+if host ~= "" and is_file_exists(HOME .. "/.config/hypr/monitors/" .. host .. ".lua") then
+    require("monitors." .. host)
+end
