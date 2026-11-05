@@ -3,3 +3,11 @@
 -- Environment
 hl.env("XCURSOR_THEME", "Bibata-Modern-Classic")
 hl.env("XCURSOR_SIZE", "20")
+
+-- Settings
+hl.config({
+    decoration = {
+        dim_strength = 0.08,
+        rounding = 5,
+    },
+})
