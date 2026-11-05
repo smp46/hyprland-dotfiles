@@ -1,0 +1,8 @@
+[Unit]
+Description=Hyprland session (started from hyprland.lua, not uwsm)
+Documentation=man:systemd.special(7)
+# graphical-session.target refuses manual start; bind to it from here instead.
+# xdg-desktop-portal (>= 1.20) is Requisite= on graphical-session.target.
+BindsTo=graphical-session.target
+Wants=graphical-session-pre.target
+After=graphical-session-pre.target
