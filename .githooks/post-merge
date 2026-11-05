@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# After a pull/merge, recreate gitignored runtime files (e.g. matugen colours)
+# that the pull removed, from their tracked *.default copies.
+exec "$(git rev-parse --show-toplevel)/link" --seed

@@ -2,6 +2,8 @@
 # Symlink live config to this repo's dots/.
 #   ./link        apply
 #   ./link -n     dry run (print actions only)
+#   ./link --seed only create missing runtime files from their *.default copies
+#                 (run automatically after git pull by .githooks/post-merge)
 #
 # Layout:
 #   - Every entry directly under dots/.config is linked WHOLE (directory or file),
@@ -25,6 +27,7 @@ REPO="$(cd "$(dirname "$0")" && pwd)"
 SRC_ROOT="$REPO/dots"
 BACKUP="$HOME/.local/state/dotfiles-link-backup/$(date +%Y%m%d-%H%M%S)"
 DRY=false; [[ "${1:-}" == "-n" ]] && DRY=true
+SEED_ONLY=false; [[ "${1:-}" == "--seed" ]] && SEED_ONLY=true
 
 EXCLUDE=(
   .config/kdeglobals                   # rewritten by KDE / material-you colours
@@ -120,6 +123,13 @@ seed_defaults() {
 $DRY && say "### DRY RUN — nothing will change"
 
 seed_defaults
+$SEED_ONLY && exit 0
+
+# Use the repo's tracked git hooks (re-seed defaults after pulls)
+if [[ "$(git -C "$REPO" config --get core.hooksPath)" != .githooks ]]; then
+  say "config  git core.hooksPath = .githooks"
+  run git -C "$REPO" config core.hooksPath .githooks
+fi
 
 for s in "$SRC_ROOT"/.config/* "$SRC_ROOT"/.config/.[!.]*; do
   [[ -e "$s" ]] || continue
