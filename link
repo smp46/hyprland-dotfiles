@@ -24,6 +24,9 @@ EXCLUDE=(
   .config/fish/fish_variables          # rewritten by fish
   .config/hypr/hyprland.conf           # stub; its presence blocks the Lua config
   .config/hypr/monitors.lua            # machine-specific monitor layout
+  .config/dolphinrc                    # rewritten by Dolphin (window/view state)
+  .config/konsolerc                    # rewritten by Konsole (window state)
+  .local/share/kxmlgui5                # KDE toolbar/menu layouts written at runtime
 )
 
 is_excluded() { local p; for p in "${EXCLUDE[@]}"; do [[ "$1" == "$p" ]] && return 0; done; return 1; }
