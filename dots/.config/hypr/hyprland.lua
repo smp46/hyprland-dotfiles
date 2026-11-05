@@ -42,3 +42,6 @@ end
 
 -- Shell overrides --
 require("hyprland.shellOverrides.main")
+
+-- HyprMod managed settings
+require("hyprland-gui")
