@@ -25,3 +25,6 @@ __pycache__/
 /dots/.config/fish/conf.d/fish_frozen_*.fish
 # HyprMod atomic-write temp files
 /dots/.config/hypr/*.tmp
+# illogical-impulse install markers (machine state)
+/dots/.config/illogical-impulse/installed_listfile
+/dots/.config/illogical-impulse/installed_true
