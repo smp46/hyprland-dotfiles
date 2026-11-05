@@ -33,4 +33,4 @@ if status is-interactive
 end
 
 # Added by Antigravity CLI installer
-set -gx PATH "/home/smp/.local/bin" $PATH
+set -gx PATH "$HOME/.local/bin" $PATH
