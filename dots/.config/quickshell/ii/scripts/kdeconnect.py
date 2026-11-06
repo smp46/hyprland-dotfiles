@@ -133,7 +133,10 @@ def cmd_list():
     devices = []
     for dev_id in device_ids:
         path = f"{DEVICES_PATH}/{dev_id}"
-        name = get_property(service, path, DEVICE_IFACE, "name") or dev_id
+        # Skip unpaired devices (the daemon lists every device it has seen)
+        if get_property(service, path, DEVICE_IFACE, "isPaired") is False:
+            continue
+        name =get_property(service, path, DEVICE_IFACE, "name") or dev_id
         is_reachable = get_property(service, path, DEVICE_IFACE, "isReachable")
         dev_type = get_property(service, path, DEVICE_IFACE, "type") or "phone"
 
