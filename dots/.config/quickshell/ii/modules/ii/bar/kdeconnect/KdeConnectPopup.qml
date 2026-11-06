@@ -300,6 +300,16 @@ PopupWindow {
                         if (KdeConnect.device) KdeConnect.ping(KdeConnect.device.id);
                     }
                 }
+
+                ActionButton {
+                    Layout.columnSpan: 2
+                    actionIcon: KdeConnect.mirroring ? "cast_connected" : "cast"
+                    label: KdeConnect.mirroring ? Translation.tr("Show / Hide Mirror") : Translation.tr("Mirror Screen")
+                    onClicked: {
+                        KdeConnect.toggleMirror();
+                        root.close();
+                    }
+                }
             }
 
             // Disconnected Help Text

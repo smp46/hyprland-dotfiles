@@ -72,6 +72,10 @@ Item {
             KdeConnect.openApp();
         }
 
+        middleClickAction: () => {
+            KdeConnect.toggleMirror();
+        }
+
         contentItem: RowLayout {
             id: contentRow
             anchors.centerIn: parent
@@ -156,7 +160,7 @@ Item {
                 status += ` • ${Math.round(root.charge)}%`;
                 if (root.isCharging) status += ` (${Translation.tr("Charging")})`;
             }
-            return `${status}\n${Translation.tr("Click to manage • Right-click to open app")}`;
+            return `${status}\n${Translation.tr("Click to manage • Right-click to open app • Middle-click to mirror")}`;
         }
         extraVisibleCondition: button.hovered && !root.popupOpen
         alternativeVisibleCondition: extraVisibleCondition

@@ -160,6 +160,22 @@ Singleton {
         }
     }
 
+    // Phone mirroring (scrcpy). The script launches it, or hides/shows its window.
+    readonly property string mirrorScript: `${Quickshell.env("HOME")}/.config/hypr/custom/scripts/phone-mirror.sh`
+    readonly property bool mirroring: HyprlandData?.windowList?.some(w => w.class === "scrcpy") ?? false
+
+    function toggleMirror() {
+        Quickshell.execDetached([root.mirrorScript]);
+    }
+
+    IpcHandler {
+        target: "phone"
+
+        function toggleMirror(): void {
+            root.toggleMirror();
+        }
+    }
+
     function openApp() {
         const win = HyprlandData?.windowList?.find(w => w.class === "org.kde.kdeconnect.app" || w.initialClass === "org.kde.kdeconnect.app");
         if (win && win.address) {

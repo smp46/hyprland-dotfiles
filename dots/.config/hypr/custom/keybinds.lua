@@ -49,6 +49,10 @@ hl.unbind("SUPER + C")
 hl.unbind("SUPER + T")
 hl.unbind("CTRL + ALT + T")
 
+-- Phone mirroring: launch scrcpy, or hide/show its window
+hl.bind("SUPER + ALT + P", hl.dsp.exec_cmd(HOME .. "/.config/hypr/custom/scripts/phone-mirror.sh"),
+	{ description = "Phone: Mirror / toggle" })
+
 -- Lock immediately when laptop lid is closed
 hl.bind("switch:on:Lid Switch", hl.dsp.exec_cmd("loginctl lock-session"), { locked = true, description = "Session: Lock on lid close" })
 
